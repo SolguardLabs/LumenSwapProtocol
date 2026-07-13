@@ -1,0 +1,17 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  forge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - run: forge fmt --check
+      - run: forge build --deny warnings
+      - run: FOUNDRY_PROFILE=ci forge test --deny warnings
