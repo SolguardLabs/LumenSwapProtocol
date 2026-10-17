@@ -26,7 +26,7 @@ interface ILumenPool {
         uint256 amount0,
         uint256 amount1,
         uint256 sharesBurned,
-        uint256 staleInvariant,
+        uint256 invariantBefore,
         uint256 actualInvariant
     );
     event Swap(

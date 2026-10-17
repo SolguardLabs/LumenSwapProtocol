@@ -248,12 +248,12 @@ contract LumenPool is ILumenPool, LumenLPToken, Ownable2Step, Pausable, Reentran
             StableSwapMath.getD(_virtual0 - amount0, _virtual1 - amount1, amplification);
 
         uint256 feeShares = _quoteImbalanceFeeShares(totalSupply, invariantBefore, amount0, amount1);
-        uint256 staleProjectedInvariant = invariantBefore;
+        uint256 sharePricingInvariant = invariantBefore;
 
-        // Intentional CTF bug: the virtual balances are projected below, but the LP burn
-        // calculation keeps the previous D as if the withdrawal had not changed the curve.
+        // Share pricing is anchored to the settlement checkpoint; projected reserves are
+        // committed only after the withdrawal has passed balance and slippage controls.
         uint256 sharesToBurn = StableSwapMath.quoteSharesForWithdrawal(
-            totalSupply, invariantBefore, staleProjectedInvariant
+            totalSupply, invariantBefore, sharePricingInvariant
         ) + feeShares;
         if (sharesToBurn == 0) sharesToBurn = 1;
 
@@ -261,7 +261,7 @@ contract LumenPool is ILumenPool, LumenLPToken, Ownable2Step, Pausable, Reentran
             amount0: amount0,
             amount1: amount1,
             sharesToBurn: sharesToBurn,
-            staleInvariant: staleProjectedInvariant,
+            invariantBefore: sharePricingInvariant,
             actualInvariantAfter: actualInvariantAfter,
             imbalanceFeeShares: feeShares
         });
@@ -431,7 +431,7 @@ contract LumenPool is ILumenPool, LumenLPToken, Ownable2Step, Pausable, Reentran
             amount0,
             amount1,
             sharesBurned,
-            quote.staleInvariant,
+            quote.invariantBefore,
             quote.actualInvariantAfter
         );
     }
