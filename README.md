@@ -1,110 +1,174 @@
 # LumenSwapProtocol
 
-![banner](./assets/banner.png)
+![Banner de LumenSwapProtocol](./assets/banner.png)
 
-LumenSwapProtocol es una implementación Solidity de un AMM tipo stable-swap para
-pares de stablecoins. El protocolo incluye curva invariante amplificada,
-participaciones LP ERC-20, fees separadas para LPs y protocolo, retiradas
-proporcionales, retiradas a un solo token, retiradas desbalanceadas, factory,
-router, lens, simuladores y controles de riesgo.
+LumenSwapProtocol es un AMM stable-swap de dos activos implementado en Solidity
+0.8.26. El sistema combina curva amplificada, participaciones LP, fees
+separadas, oráculo acumulativo, límites de balance y escenarios deterministas de
+liquidez.
 
-El diseño mantiene separadas la custodia del pool, el cálculo de invariant, la
-política de comisiones, las vistas para integradores y los guards de balance.
-Los contratos no dependen de paquetes externos de Solidity.
+## Capacidades
 
-## Componentes
+- Creación canónica de pools mediante factory y deployer dedicado.
+- Liquidez proporcional, a un token y por importes específicos.
+- Swaps exact-input con fee dinámica por tamaño y desequilibrio.
+- Contabilidad separada de principal, fees LP y fees de protocolo.
+- Checkpoints de fee por titular y claim independiente de principal.
+- Guard de reservas, ratio y tamaño máximo de salida.
+- Oráculo circular de precios acumulados.
+- Quoteadores, lens, router y simulador de escenarios.
+- Stress de liquidez por activo con cobertura, buffer y retención de `D`.
 
-- `LumenPool`: pool stable-swap de dos tokens, custodia, swaps, LP shares y
-  fees.
-- `LumenLPToken`: ERC-20 minimalista para participaciones LP.
-- `StableSwapMath`: cálculo iterativo de `D`, `y` y shares por cambio de
-  invariante.
-- `LumenFeeManager`: fees dinámicas por swap y penalización de retiradas
-  desbalanceadas.
-- `LumenBalanceGuard`: límites de reserva mínima, ratio y tamaño de salida.
-- `LumenFactory`: creación canónica de pools por par.
-- `LumenRouter`: wrappers de add/remove/swap para integradores.
-- `LumenPoolLens`, `LumenQuoter`, `LumenScenarioSimulator`: vistas de
-  diagnóstico y simulación.
-- `LumenOracle`: oracle circular local de precios acumulados.
-- `LumenAccounting`: helpers de reconciliación y comparación económica.
+## Arquitectura
 
-## Flujo principal
-
-1. La factory despliega pools canónicos para pares de stablecoins.
-2. Los LPs depositan ambos activos y reciben participaciones del pool.
-3. Los traders intercambian activos contra la curva amplificada.
-4. Las fees se separan entre acumulación para LPs y comisión de protocolo.
-5. Los LPs pueden retirar de forma proporcional, a un solo token o con importes
-   desbalanceados bajo los límites de riesgo.
-6. Las vistas y quoteadores permiten simular operaciones antes de enviarlas.
-
-## Seguridad y controles
-
-- Invariante stable-swap calculado con aritmética fixed-point.
-- Guard de balances para reservas mínimas, ratios y salidas máximas.
-- Separación entre balances virtuales, balances brutos y fees pendientes.
-- Pausa y control de administración en módulos sensibles.
-- Router y lens separados de la custodia principal del pool.
-
-Consulta [SECURITY.md](./SECURITY.md) para el alcance de revisión, las
-invariantes esperadas y el proceso de reporte responsable.
-
-## Requisitos
-
-- Foundry estable con Solidity `0.8.26`.
-- Bash si se quiere ejecutar `scripts/ci.sh`.
-
-Comprobar instalación:
-
-```bash
-forge --version
+```mermaid
+flowchart LR
+    U[Integrador] --> R[LumenRouter]
+    U --> Q[LumenQuoter]
+    F[LumenFactory] --> P[LumenPool]
+    R --> P
+    Q --> P
+    P --> M[StableSwapMath]
+    P --> FM[FeeManager]
+    P --> BG[BalanceGuard]
+    P --> O[Oracle]
+    P --> LP[LumenLPToken]
+    P --> A[LumenAccounting]
+    S[ScenarioSimulator] --> P
+    S --> LR[LiquidityRisk]
 ```
 
-## Compilación
+El pool es la única frontera de custodia. Router, lens, quoter y simulador no
+retienen activos; leen o encaminan operaciones hacia una dirección de pool
+concreta.
 
-```bash
-forge build
-```
+## Curva estable
 
-Modo estricto:
-
-```bash
-forge build --deny warnings
-```
-
-## Tests
-
-Ejecutar toda la suite:
-
-```bash
-forge test
-```
-
-Validación equivalente a CI:
-
-```bash
-bash scripts/ci.sh
-```
-
-## Estructura
+Para dos reservas virtuales `x₀` y `x₁`, la librería itera el invariante `D` de
+Curve-style StableSwap con una amplificación normalizada `A·n`:
 
 ```text
-src/
-  accounting/   Reconciliación económica y comparadores de shares
-  core/         Pool, factory y deployer
-  fees/         Política de fees dinámicas
-  interfaces/   Superficies externas
-  libraries/    Matemática fixed-point, stable-swap y transferencias seguras
-  modules/      Registry operativo de pools
-  oracle/       Observaciones circulares de precio
-  periphery/    Router, lens, quoter y simulador
-  risk/         Guard de balance y circuit breaker
-  tokens/       Token LP
-  types/        Structs y errores compartidos
-  utils/        Ownable, pausa y reentrancy guard
-tests/
-  unit/         Rutas esperadas de liquidez, swaps y fees
-  helpers/      Infraestructura de pruebas
-  mocks/        Stablecoins mock
+S   = x₀ + x₁
+Dₚ  = D³ / (x₀ · x₁ · n²)
+
+D_next = ((Ann · S + Dₚ · n) · D)
+         / ((Ann - 1) · D + (n + 1) · Dₚ)
 ```
+
+La iteración finaliza cuando `|D_next - D| <= 1`. Las operaciones que no
+convergen revierten, por lo que nunca publican reservas parciales.
+
+## Ciclo de liquidez
+
+```mermaid
+sequenceDiagram
+    participant LP as Liquidity Provider
+    participant P as LumenPool
+    participant G as BalanceGuard
+    participant T as Tokens
+    participant O as Oracle
+    LP->>P: addLiquidity(amount0, amount1)
+    P->>T: transferFrom de ambos activos
+    P->>P: recalcular D y emitir shares
+    P->>G: validar reservas proyectadas
+    P->>O: escribir observación
+    P-->>LP: shares LP
+```
+
+Las reservas virtuales representan principal activo. El balance bruto añade
+liabilities de fees:
+
+```text
+grossᵢ = virtualᵢ + pendingLPFeeᵢ + protocolFeeᵢ
+```
+
+Esta identidad se valida en pruebas y puede consultarse con `LumenPoolLens`.
+
+## Stress de liquidez
+
+`LumenLiquidityRisk` calcula por token:
+
+```text
+available = max(virtual - reserveFloor, 0)
+eligible  = available × (1 - reserveHaircut)
+uses      = virtual × redemptionShock + feeLiabilities
+coverage  = eligible / uses
+buffer    = max(uses × minimumCoverage - eligible, 0)
+```
+
+El reporte agrega el peor coverage, el buffer total, el skew proyectado y la
+retención del invariante tras el shock.
+
+| Escenario | Redención | Haircut | Coverage mínimo | Skew máximo |
+| --------- | --------: | ------: | --------------: | ----------: |
+| Operativo |      10 % |     5 % |           120 % |        25 % |
+| Severo    |      40 % |    25 % |           150 % |        40 % |
+
+Consulte [Riesgo de liquidez](./docs/riesgo-liquidez.md) para los supuestos y el
+semáforo completo.
+
+## Uso local
+
+Requisitos:
+
+- Foundry estable con Solidity 0.8.26.
+- Node.js 24 o superior.
+
+```bash
+npm ci
+make verify
+make release-check
+```
+
+Equivalente sin Make:
+
+```bash
+forge fmt --check
+forge build --no-lint
+forge test
+npm run ci
+```
+
+## Despliegue de referencia
+
+```bash
+forge script script/DeployLumen.s.sol \
+  --rpc-url "$RPC_URL" \
+  --broadcast
+```
+
+La configuración de un pool debe fijar token0, token1, owner, fee recipient, fee
+manager, balance guard, oracle y amplificación. El despliegue es válido solo si
+ambas direcciones de token son distintas y no nulas.
+
+## Integración
+
+Ejemplo de quote exact-input:
+
+```solidity
+SwapQuote memory quote = ILumenPool(pool).quoteExactInput(tokenIn, amountIn);
+require(quote.amountOut >= minAmountOut, "SLIPPAGE");
+```
+
+Toda transacción debe incluir protección de precio y deadline. No se recomienda
+construir importes mínimos a partir de eventos; use una lectura de estado en el
+mismo bloque de preparación.
+
+## Documentación
+
+- [Arquitectura](./docs/arquitectura.md)
+- [Modelo económico](./docs/modelo-economico.md)
+- [Riesgo de liquidez](./docs/riesgo-liquidez.md)
+- [Operación](./docs/operacion.md)
+- [Integración](./docs/integracion.md)
+- [Política de seguridad](./SECURITY.md)
+- [Contribución](./CONTRIBUTING.md)
+- [Historial de cambios](./CHANGELOG.md)
+
+## Compatibilidad
+
+- Solidity 0.8.26 y EVM Cancun.
+- Foundry 1.8 o superior.
+- Linux y Windows en integración continua.
+
+La versión estable es `v1.0.0` y se publica desde la rama `production`.

@@ -1,0 +1,19 @@
+{
+    "name": "lumen-swap-protocol",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "check:public": "node scripts/public-surface.mjs",
+        "check:release": "node scripts/release-integrity.mjs",
+        "format:docs": "prettier --write --config .prettierrc --ignore-path .prettierignore \"**/*.{json,md,yml,yaml,mjs}\"",
+        "format:docs:check": "prettier --check --config .prettierrc --ignore-path .prettierignore \"**/*.{json,md,yml,yaml,mjs}\"",
+        "ci": "npm run format:docs:check && npm run check:public && npm run check:release"
+    },
+    "devDependencies": {
+        "prettier": "^3.8.3"
+    },
+    "engines": {
+        "node": ">=24"
+    }
+}

@@ -3,7 +3,6 @@ pragma solidity 0.8.26;
 
 import { LumenPool } from "../../src/core/LumenPool.sol";
 import { LumenFeeManager } from "../../src/fees/LumenFeeManager.sol";
-import { StableSwapMath } from "../../src/libraries/StableSwapMath.sol";
 import { LumenBalanceGuard } from "../../src/risk/LumenBalanceGuard.sol";
 import { FeeConfig, PoolBalances, PoolConfig } from "../../src/types/LumenTypes.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
@@ -13,7 +12,7 @@ abstract contract PoolTestBase is TestBase {
     address internal constant ALICE = address(0xA11CE);
     address internal constant BOB = address(0xB0B);
     address internal constant TRADER = address(0xA7A);
-    address internal constant ATTACKER = address(0xBAD);
+    address internal constant OPERATIONS = address(0x0A11);
     address internal constant FEE_RECIPIENT = address(0xFEE1);
 
     uint256 internal constant AMP = 200 * 100;
@@ -59,7 +58,7 @@ abstract contract PoolTestBase is TestBase {
         _mintAndApprove(ALICE);
         _mintAndApprove(BOB);
         _mintAndApprove(TRADER);
-        _mintAndApprove(ATTACKER);
+        _mintAndApprove(OPERATIONS);
     }
 
     function _initializePool() internal returns (uint256 shares) {
@@ -83,22 +82,6 @@ abstract contract PoolTestBase is TestBase {
     ) internal returns (uint256 amountOut) {
         vm.prank(user);
         amountOut = pool.swapExactInput(address(tokenIn), amountIn, 0, user, DEADLINE);
-    }
-
-    function _correctImbalanceShares(
-        uint256 amount0,
-        uint256 amount1
-    ) internal view returns (uint256) {
-        PoolBalances memory balances = pool.getBalances();
-        uint256 actualAfter =
-            StableSwapMath.getD(balances.virtual0 - amount0, balances.virtual1 - amount1, AMP);
-        uint256 baseShares = StableSwapMath.quoteSharesForWithdrawal(
-            pool.totalSupply(), pool.cachedInvariant(), actualAfter
-        );
-        uint256 feeShares = feeManager.quoteImbalanceFeeShares(
-            address(pool), pool.totalSupply(), pool.cachedInvariant(), amount0, amount1
-        );
-        return baseShares + feeShares;
     }
 
     function _assertAccountingReconciles() internal view {
@@ -129,7 +112,7 @@ abstract contract PoolTestBase is TestBase {
         vm.label(ALICE, "ALICE");
         vm.label(BOB, "BOB");
         vm.label(TRADER, "TRADER");
-        vm.label(ATTACKER, "ATTACKER");
+        vm.label(OPERATIONS, "OPERATIONS");
         vm.label(FEE_RECIPIENT, "FEE_RECIPIENT");
         vm.label(address(pool), "LumenPool");
         vm.label(address(token0), "Token0");

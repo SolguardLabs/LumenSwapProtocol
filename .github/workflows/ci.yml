@@ -1,17 +1,39 @@
-name: test
+name: CI
 
 on:
-  push:
-  pull_request:
+    push:
+        branches: [main, production, "release/**"]
+        tags: ["v*"]
+    pull_request:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ci-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
 
 jobs:
-  forge:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: stable
-      - run: forge fmt --check
-      - run: forge build --deny warnings
-      - run: FOUNDRY_PROFILE=ci forge test --deny warnings
+    verify:
+        name: Foundry and Node (${{ matrix.os }})
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, windows-latest]
+        env:
+            FOUNDRY_PROFILE: ci
+        steps:
+            - uses: actions/checkout@v7
+            - uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: stable
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 24
+                  cache: npm
+            - run: npm ci
+            - run: forge fmt --check
+            - run: forge build --no-lint
+            - run: forge test
+            - run: npm run ci

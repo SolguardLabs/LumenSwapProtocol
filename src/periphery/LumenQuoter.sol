@@ -4,7 +4,7 @@ pragma solidity 0.8.26;
 import { LumenAccounting } from "../accounting/LumenAccounting.sol";
 import { IERC20Minimal } from "../interfaces/IERC20Minimal.sol";
 import { ILumenPool } from "../interfaces/ILumenPool.sol";
-import { ImbalanceQuote, LiquidityQuote, PoolBalances, SwapQuote } from "../types/LumenTypes.sol";
+import { LiquidityQuote, PoolBalances, SwapQuote } from "../types/LumenTypes.sol";
 
 struct LumenPoolDiagnostics {
     PoolBalances balances;
@@ -82,61 +82,6 @@ contract LumenQuoter {
                 .quoteRemoveLiquidityOneToken(ILumenPool(pool).token1(), plan.userShares);
         }
         (plan.accrued0, plan.accrued1) = ILumenPool(pool).accruedFees(account);
-    }
-
-    function compareImbalancedWithdrawal(
-        address pool,
-        uint256 amount0,
-        uint256 amount1
-    )
-        external
-        view
-        returns (
-            ImbalanceQuote memory protocolQuote,
-            LumenAccounting.ImbalanceComparison memory comparison
-        )
-    {
-        protocolQuote = ILumenPool(pool).quoteRemoveLiquidityImbalanced(amount0, amount1);
-        PoolBalances memory balances = ILumenPool(pool).getBalances();
-        comparison = balances.compareImbalanceBurn(
-            _totalSupply(pool),
-            ILumenPool(pool).cachedInvariant(),
-            ILumenPool(pool).amplification(),
-            amount0,
-            amount1,
-            protocolQuote.imbalanceFeeShares
-        );
-    }
-
-    function quoteProgressiveImbalance(
-        address pool,
-        uint256 amount0PerStep,
-        uint256 amount1PerStep,
-        uint256 steps
-    ) external view returns (uint256[] memory staleShares, uint256[] memory correctedShares) {
-        staleShares = new uint256[](steps);
-        correctedShares = new uint256[](steps);
-        PoolBalances memory balances = ILumenPool(pool).getBalances();
-        uint256 supply = _totalSupply(pool);
-        uint256 invariant = ILumenPool(pool).cachedInvariant();
-        uint256 amp = ILumenPool(pool).amplification();
-
-        for (uint256 i; i < steps; ++i) {
-            uint256 amount0 = amount0PerStep;
-            uint256 amount1 = amount1PerStep;
-            if (amount0 > balances.virtual0 || amount1 > balances.virtual1) break;
-            ImbalanceQuote memory quote =
-                ILumenPool(pool).quoteRemoveLiquidityImbalanced(amount0, amount1);
-            LumenAccounting.ImbalanceComparison memory comparison = balances.compareImbalanceBurn(
-                supply, invariant, amp, amount0, amount1, quote.imbalanceFeeShares
-            );
-            staleShares[i] = comparison.staleShares;
-            correctedShares[i] = comparison.correctedShares;
-            balances.virtual0 -= amount0;
-            balances.virtual1 -= amount1;
-            invariant = comparison.correctedInvariant;
-            supply = supply > comparison.staleShares ? supply - comparison.staleShares : 0;
-        }
     }
 
     function _totalSupply(

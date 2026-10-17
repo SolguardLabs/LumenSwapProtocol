@@ -31,16 +31,6 @@ library LumenAccounting {
         uint256 lpFeePerShareWad;
     }
 
-    struct ImbalanceComparison {
-        uint256 staleShares;
-        uint256 correctedShares;
-        uint256 feeShares;
-        uint256 staleInvariant;
-        uint256 correctedInvariant;
-        uint256 underburnedShares;
-        uint256 discountPpm;
-    }
-
     struct FeeSolvency {
         uint256 pendingLPFees;
         uint256 protocolFees;
@@ -101,44 +91,6 @@ library LumenAccounting {
             data.grossAssets > data.totalLiabilities ? data.grossAssets - data.totalLiabilities : 0;
         data.solvent = balances.gross0 >= balances.pendingLPFee0 + balances.protocolFee0
             && balances.gross1 >= balances.pendingLPFee1 + balances.protocolFee1;
-    }
-
-    function compareImbalanceBurn(
-        PoolBalances memory balances,
-        uint256 totalSupply,
-        uint256 cachedInvariant,
-        uint256 amplification,
-        uint256 amount0,
-        uint256 amount1,
-        uint256 feeShares
-    ) internal pure returns (ImbalanceComparison memory comparison) {
-        uint256 after0 = balances.virtual0 - amount0;
-        uint256 after1 = balances.virtual1 - amount1;
-        uint256 correctedInvariant = StableSwapMath.getD(after0, after1, amplification);
-        uint256 staleShares = StableSwapMath.quoteSharesForWithdrawal(
-            totalSupply, cachedInvariant, cachedInvariant
-        ) + feeShares;
-        uint256 correctedShares = StableSwapMath.quoteSharesForWithdrawal(
-            totalSupply, cachedInvariant, correctedInvariant
-        ) + feeShares;
-        if (staleShares == 0 && amount0 + amount1 != 0) staleShares = 1;
-        if (correctedShares == 0 && amount0 + amount1 != 0) correctedShares = 1;
-
-        comparison = ImbalanceComparison({
-            staleShares: staleShares,
-            correctedShares: correctedShares,
-            feeShares: feeShares,
-            staleInvariant: cachedInvariant,
-            correctedInvariant: correctedInvariant,
-            underburnedShares: correctedShares > staleShares ? correctedShares - staleShares : 0,
-            discountPpm: correctedShares == 0
-                ? 0
-                : FullMath.mulDiv(
-                    correctedShares > staleShares ? correctedShares - staleShares : 0,
-                    PPM,
-                    correctedShares
-                )
-        });
     }
 
     function proRataAmounts(
