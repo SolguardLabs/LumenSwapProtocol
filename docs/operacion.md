@@ -15,7 +15,8 @@ Verifique además que:
 - el pool fue creado por la factory esperada;
 - token0 y token1 coinciden con el par aprobado;
 - owner, fee recipient, fee manager, guard y oracle son los previstos;
-- `cachedInvariant` coincide con el cálculo del lens;
+- `cachedInvariant` y el cálculo del lens se interpretan junto con el estado de
+  la rampa de amplificación;
 - los balances físicos reconcilian con `gross0` y `gross1`.
 
 ## Runbook diario
@@ -41,6 +42,13 @@ Métricas mínimas:
 | `worstCoveragePpm`     | Cobertura bajo shock                                |
 | `requiredBuffer`       | Capital operativo adicional                         |
 | `projectedSkewPpm`     | Concentración entre lados                           |
+| `amplification()`      | Parámetro efectivo del bloque                       |
+| `amplificationRamp()`  | Extremos y ventana de la transición programada      |
+
+Una rampa puede producir `invariantDrift` sin movimientos de reservas, porque el
+lens recalcula `D` con el parámetro efectivo y el checkpoint se escribe en el
+settlement. Registre ambas lecturas y el bloque exacto; la reconciliación de
+custodia y los límites de shares siguen siendo verificaciones separadas.
 
 ## Incidencia
 
@@ -54,6 +62,6 @@ Métricas mínimas:
 
 ## Release
 
-La rama `production`, el tag `v1.0.0` y `main` deben resolver al mismo commit.
+La rama `production`, el tag `v2.0.0` y `main` deben resolver al mismo commit.
 Los checks de Foundry y Node deben estar verdes en los tres refs. La publicación
 incluye únicamente artefactos de código fuente y documentación versionada.

@@ -29,7 +29,9 @@ minAmountOut = quote.amountOut × (1_000_000 - tolerancePpm) / 1_000_000
 ```
 
 Para aportar liquidez use `minShares`; para retirar importes específicos use
-`maxShares`. El deadline debe ser corto y explícito.
+`maxShares`. El deadline debe ser corto y explícito. Durante una rampa de
+amplificación, vuelva a solicitar el quote después de cada cambio de bloque:
+`amplification()` depende del tiempo de ejecución.
 
 ## Eventos
 
@@ -39,6 +41,8 @@ Los indexadores deben consumir:
 - `Swap` para volumen y fees;
 - `LPFeesClaimed` y `ProtocolFeesCollected` para liabilities;
 - cambios de fee manager, guard y fee recipient para configuración.
+- `AmplificationRampScheduled` y `AmplificationRampStopped` para gobierno de la
+  curva; contraste los eventos con `amplificationRamp()`.
 
 Un evento no sustituye la lectura de estado. Ante reorganización, reconstruya
 desde el último bloque finalizado y confirme balances contra el pool.

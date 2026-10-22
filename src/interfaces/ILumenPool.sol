@@ -46,10 +46,21 @@ interface ILumenPool {
     event FeeManagerUpdated(address indexed feeManager);
     event BalanceGuardUpdated(address indexed guard);
     event FeeRecipientUpdated(address indexed recipient);
+    event AmplificationRampScheduled(uint256 start, uint256 target, uint64 endTime);
+    event AmplificationRampStopped(uint256 value);
 
     function token0() external view returns (address);
     function token1() external view returns (address);
     function amplification() external view returns (uint256);
+    function amplificationRamp()
+        external
+        view
+        returns (uint256 start, uint256 target, uint64 startTime, uint64 endTime);
+    function rampAmplification(
+        uint256 target,
+        uint64 endTime
+    ) external;
+    function stopAmplificationRamp() external;
     function cachedInvariant() external view returns (uint256);
     function feeRecipient() external view returns (address);
     function feeManager() external view returns (address);

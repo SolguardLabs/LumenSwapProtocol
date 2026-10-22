@@ -50,7 +50,7 @@ flowchart TB
 Cada pool almacena:
 
 - direcciones inmutables de token0 y token1;
-- amplificación inmutable;
+- extremos y tiempo de la amplificación programada;
 - balances brutos y virtuales por token;
 - liabilities de fees LP y de protocolo;
 - crecimiento acumulado de fees por share;
@@ -59,6 +59,8 @@ Cada pool almacena:
 
 El orden de estado evita depender del balance ERC-20 como fuente única. Los
 tokens físicos se reconcilian contra el libro interno al finalizar cada flujo.
+La rampa de amplificación cambia una política matemática, no transfiere custodia
+ni altera por sí misma las reservas físicas o virtuales.
 
 ## Settlement
 
