@@ -44,11 +44,19 @@ contract LumenPool is ILumenPool, LumenLPToken, Ownable2Step, Pausable, Reentran
     using SafeTransferLib for address;
 
     uint256 public constant MINIMUM_LIQUIDITY = 1000;
+    uint256 public constant MIN_AMP_RAMP_DURATION = 1 days;
+    uint256 public constant MAX_AMP_RAMP_FACTOR = 10;
     address public constant DEAD_SHARES = address(0x000000000000000000000000000000000000dEaD);
 
     address public immutable token0;
     address public immutable token1;
-    uint256 public immutable amplification;
+
+    uint256 private _ampStart;
+    uint256 private _ampTarget;
+    uint64 private _ampRampStart;
+    uint64 private _ampRampEnd;
+
+    error InvalidAmplificationRamp();
 
     address public feeRecipient;
     address public feeManager;
@@ -87,7 +95,10 @@ contract LumenPool is ILumenPool, LumenLPToken, Ownable2Step, Pausable, Reentran
 
         token0 = config.token0;
         token1 = config.token1;
-        amplification = config.amplification;
+        _ampStart = config.amplification;
+        _ampTarget = config.amplification;
+        _ampRampStart = uint64(block.timestamp);
+        _ampRampEnd = uint64(block.timestamp);
         feeRecipient = config.feeRecipient;
         feeManager = config.feeManager;
         balanceGuard = config.balanceGuard;
@@ -100,6 +111,51 @@ contract LumenPool is ILumenPool, LumenLPToken, Ownable2Step, Pausable, Reentran
 
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    function amplification() public view returns (uint256) {
+        if (block.timestamp >= _ampRampEnd) return _ampTarget;
+        uint256 elapsed = block.timestamp - _ampRampStart;
+        uint256 duration = _ampRampEnd - _ampRampStart;
+        if (_ampTarget >= _ampStart) {
+            return _ampStart + (_ampTarget - _ampStart) * elapsed / duration;
+        }
+        return _ampStart - (_ampStart - _ampTarget) * elapsed / duration;
+    }
+
+    function amplificationRamp()
+        external
+        view
+        returns (uint256 start, uint256 target, uint64 startTime, uint64 endTime)
+    {
+        return (_ampStart, _ampTarget, _ampRampStart, _ampRampEnd);
+    }
+
+    function rampAmplification(
+        uint256 target,
+        uint64 endTime
+    ) external onlyOwner {
+        StableSwapMath.validateAmplification(target);
+        uint256 current = amplification();
+        if (
+            block.timestamp < _ampRampEnd || endTime < block.timestamp + MIN_AMP_RAMP_DURATION
+                || target > current * MAX_AMP_RAMP_FACTOR || current > target * MAX_AMP_RAMP_FACTOR
+        ) revert InvalidAmplificationRamp();
+
+        _ampStart = current;
+        _ampTarget = target;
+        _ampRampStart = uint64(block.timestamp);
+        _ampRampEnd = endTime;
+        emit AmplificationRampScheduled(current, target, endTime);
+    }
+
+    function stopAmplificationRamp() external onlyOwner {
+        uint256 current = amplification();
+        _ampStart = current;
+        _ampTarget = current;
+        _ampRampStart = uint64(block.timestamp);
+        _ampRampEnd = uint64(block.timestamp);
+        emit AmplificationRampStopped(current);
     }
 
     function setFeeRecipient(
@@ -186,9 +242,10 @@ contract LumenPool is ILumenPool, LumenLPToken, Ownable2Step, Pausable, Reentran
         uint256 amount1
     ) public view returns (LiquidityQuote memory quote) {
         if (amount0 == 0 && amount1 == 0) revert LumenZeroAmount();
-        uint256 invariantBefore = cachedInvariant;
+        uint256 currentAmplification = amplification();
+        uint256 invariantBefore = StableSwapMath.getD(_virtual0, _virtual1, currentAmplification);
         uint256 invariantAfter =
-            StableSwapMath.getD(_virtual0 + amount0, _virtual1 + amount1, amplification);
+            StableSwapMath.getD(_virtual0 + amount0, _virtual1 + amount1, currentAmplification);
         uint256 shares =
             StableSwapMath.quoteSharesForDeposit(totalSupply, invariantBefore, invariantAfter);
         if (totalSupply == 0) {
@@ -223,13 +280,14 @@ contract LumenPool is ILumenPool, LumenLPToken, Ownable2Step, Pausable, Reentran
         if (shares == 0) revert LumenZeroAmount();
         uint256 supply = totalSupply;
         if (supply == 0 || shares > supply) revert LumenInsufficientLiquidity();
-        uint256 d0 = cachedInvariant;
+        uint256 currentAmplification = amplification();
+        uint256 d0 = StableSwapMath.getD(_virtual0, _virtual1, currentAmplification);
         uint256 d1 = d0 - shares.mulDiv(d0, supply);
         if (tokenOut == token0) {
-            uint256 newY = StableSwapMath.getYForD(0, _virtual1, d1, amplification);
+            uint256 newY = StableSwapMath.getYForD(0, _virtual1, d1, currentAmplification);
             amountOut = _virtual0 - newY;
         } else if (tokenOut == token1) {
-            uint256 newY = StableSwapMath.getYForD(1, _virtual0, d1, amplification);
+            uint256 newY = StableSwapMath.getYForD(1, _virtual0, d1, currentAmplification);
             amountOut = _virtual1 - newY;
         } else {
             revert LumenInvalidToken();
@@ -245,15 +303,13 @@ contract LumenPool is ILumenPool, LumenLPToken, Ownable2Step, Pausable, Reentran
 
         uint256 invariantBefore = cachedInvariant;
         uint256 actualInvariantAfter =
-            StableSwapMath.getD(_virtual0 - amount0, _virtual1 - amount1, amplification);
+            StableSwapMath.getD(_virtual0 - amount0, _virtual1 - amount1, amplification());
 
         uint256 feeShares = _quoteImbalanceFeeShares(totalSupply, invariantBefore, amount0, amount1);
-        uint256 sharePricingInvariant = invariantBefore;
 
-        // Share pricing is anchored to the settlement checkpoint; projected reserves are
-        // committed only after the withdrawal has passed balance and slippage controls.
+        // Projected reserves are committed only after balance and slippage controls.
         uint256 sharesToBurn = StableSwapMath.quoteSharesForWithdrawal(
-            totalSupply, invariantBefore, sharePricingInvariant
+            totalSupply, invariantBefore, actualInvariantAfter
         ) + feeShares;
         if (sharesToBurn == 0) sharesToBurn = 1;
 
@@ -261,7 +317,7 @@ contract LumenPool is ILumenPool, LumenLPToken, Ownable2Step, Pausable, Reentran
             amount0: amount0,
             amount1: amount1,
             sharesToBurn: sharesToBurn,
-            invariantBefore: sharePricingInvariant,
+            invariantBefore: invariantBefore,
             actualInvariantAfter: actualInvariantAfter,
             imbalanceFeeShares: feeShares
         });
@@ -289,14 +345,14 @@ contract LumenPool is ILumenPool, LumenLPToken, Ownable2Step, Pausable, Reentran
             reserveIn + effectiveIn,
             _virtual0,
             _virtual1,
-            amplification
+            amplification()
         );
         uint256 amountOut = reserveOut > y ? reserveOut - y - 1 : 0;
         if (amountOut == 0) revert LumenInsufficientLiquidity();
 
         uint256 newVirtual0 = zeroForOne ? _virtual0 + effectiveIn : _virtual0 - amountOut;
         uint256 newVirtual1 = zeroForOne ? _virtual1 - amountOut : _virtual1 + effectiveIn;
-        uint256 invariantAfter = StableSwapMath.getD(newVirtual0, newVirtual1, amplification);
+        uint256 invariantAfter = StableSwapMath.getD(newVirtual0, newVirtual1, amplification());
 
         quote = SwapQuote({
             tokenIn: tokenIn,
@@ -358,7 +414,7 @@ contract LumenPool is ILumenPool, LumenLPToken, Ownable2Step, Pausable, Reentran
 
         _burn(msg.sender, shares);
         _debitVirtualAndGross(amount0, amount1);
-        cachedInvariant = StableSwapMath.getD(_virtual0, _virtual1, amplification);
+        cachedInvariant = StableSwapMath.getD(_virtual0, _virtual1, amplification());
         _validateLiquidityChange(_virtual0, _virtual1);
 
         token0.safeTransfer(recipient, amount0);
@@ -390,7 +446,7 @@ contract LumenPool is ILumenPool, LumenLPToken, Ownable2Step, Pausable, Reentran
             revert LumenInvalidToken();
         }
 
-        cachedInvariant = StableSwapMath.getD(_virtual0, _virtual1, amplification);
+        cachedInvariant = StableSwapMath.getD(_virtual0, _virtual1, amplification());
         _validateLiquidityChange(_virtual0, _virtual1);
         _writeOracle();
         emit LiquidityRemoved(

@@ -18,6 +18,7 @@ liquidez.
 - Oráculo circular de precios acumulados.
 - Quoteadores, lens, router y simulador de escenarios.
 - Stress de liquidez por activo con cobertura, buffer y retención de `D`.
+- Programación temporal de la amplificación con límites de duración y cambio.
 
 ## Arquitectura
 
@@ -34,6 +35,7 @@ flowchart LR
     P --> O[Oracle]
     P --> LP[LumenLPToken]
     P --> A[LumenAccounting]
+    GOV[Owner] -->|rampa de A| P
     S[ScenarioSimulator] --> P
     S --> LR[LiquidityRisk]
 ```
@@ -57,6 +59,13 @@ D_next = ((Ann · S + Dₚ · n) · D)
 
 La iteración finaliza cuando `|D_next - D| <= 1`. Las operaciones que no
 convergen revierten, por lo que nunca publican reservas parciales.
+
+La amplificación puede programarse entre dos valores mediante una rampa lineal.
+`amplification()` devuelve el parámetro efectivo del bloque actual;
+`amplificationRamp()` expone los extremos y las marcas de tiempo. Cada rampa
+dura al menos un día y no puede multiplicar o dividir el valor de partida por
+más de diez. Consulte el [modelo económico](./docs/modelo-economico.md) para la
+interpolación y el [runbook](./docs/operacion.md) para la supervisión.
 
 ## Ciclo de liquidez
 
@@ -171,4 +180,4 @@ mismo bloque de preparación.
 - Foundry 1.8 o superior.
 - Linux y Windows en integración continua.
 
-La versión estable es `v1.0.0` y se publica desde la rama `production`.
+La versión estable es `v2.0.0` y se publica desde la rama `production`.

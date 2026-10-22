@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import { StableSwapMath } from "../../src/libraries/StableSwapMath.sol";
 import { ImbalanceQuote, LiquidityQuote, PoolBalances } from "../../src/types/LumenTypes.sol";
 import { PoolTestBase } from "../helpers/PoolTestBase.sol";
 
@@ -79,5 +80,15 @@ contract LumenLiquidityTest is PoolTestBase {
         assertEq(token1.balanceOf(BOB) - before, 50_000 ether);
         assertEq(pool.cachedInvariant(), quote.actualInvariantAfter);
         _assertAccountingReconciles();
+    }
+
+    function test_ImbalancedQuoteIncludesInvariantChangeAndFee() public {
+        _initializePool();
+        ImbalanceQuote memory quote = pool.quoteRemoveLiquidityImbalanced(0, 50_000 ether);
+        uint256 baseShares = StableSwapMath.quoteSharesForWithdrawal(
+            pool.totalSupply(), quote.invariantBefore, quote.actualInvariantAfter
+        );
+        assertGt(baseShares, 0);
+        assertEq(quote.sharesToBurn, baseShares + quote.imbalanceFeeShares);
     }
 }

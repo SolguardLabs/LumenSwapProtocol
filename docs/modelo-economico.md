@@ -12,6 +12,19 @@ El parámetro `amplification` controla la curvatura cerca del equilibrio. Un
 valor alto reduce price impact en la zona central, pero concentra la
 sensibilidad al aproximarse a reservas extremas.
 
+El owner puede programar una transición lineal de `A₀` a `A₁` entre `t₀` y `t₁`.
+Durante la rampa:
+
+```text
+A(t) = A₀ + (A₁ - A₀) × (t - t₀) / (t₁ - t₀)
+```
+
+El resultado se redondea en unidades enteras del parámetro. La duración mínima
+es de 24 horas y cada transición se limita a un factor de diez; se puede
+programar otra transición cuando termina la anterior. El parámetro efectivo se
+consulta con `amplification()` y los extremos con `amplificationRamp()`. La
+programación no cambia balances ni mueve tokens por sí sola.
+
 ```mermaid
 flowchart LR
     B[Reservas virtuales] --> D[Cálculo iterativo de D]
@@ -47,6 +60,17 @@ amountᵢ = shares × virtualᵢ / totalSupply
 ```
 
 Las salidas a un token resuelven la reserva restante sobre el objetivo de `D`.
+Para una salida por importes específicos, la cotización combina la variación de
+`D` y una fee expresada en shares:
+
+```text
+baseShares = floor(totalSupply × (D_before - D_after) / D_before)
+sharesToBurn = baseShares + imbalanceFeeShares
+```
+
+`maxShares` protege al usuario frente a cambios de estado entre la consulta y la
+ejecución. En una rampa, las lecturas del parámetro y de las reservas deben
+referirse al mismo bloque.
 
 ## Fees
 

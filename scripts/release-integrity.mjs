@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 
-const expected = "1.0.0";
+const expected = "2.0.0";
 const required = [
     "README.md",
     "SECURITY.md",

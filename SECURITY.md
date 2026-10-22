@@ -4,7 +4,8 @@
 
 | Versión   | Estado      |
 | --------- | ----------- |
-| `1.0.x`   | Mantenida   |
+| `2.0.x`   | Mantenida   |
+| `1.0.x`   | Histórica   |
 | `< 1.0.0` | Sin soporte |
 
 ## Modelo de confianza
@@ -18,6 +19,7 @@ flowchart TB
     GOV[Owner con transición en dos pasos] --> F[Factory]
     GOV --> FM[FeeManager]
     GOV --> BG[BalanceGuard]
+    GOV -->|rampa de amplificación| P
     F --> P[Pool canónico]
     FM --> P
     BG --> P
@@ -37,7 +39,10 @@ por una operación económica del pool y sus controles de balance.
 - `grossᵢ == virtualᵢ + pendingLPFeeᵢ + protocolFeeᵢ`.
 - Las fees de protocolo no forman parte del principal LP.
 - La emisión inicial bloquea `MINIMUM_LIQUIDITY` de forma permanente.
-- Los swaps válidos mantienen o incrementan `D` después de fees.
+- Con amplificación constante, los swaps válidos mantienen o incrementan `D`
+  después de fees.
+- Solo el owner puede programar o detener una rampa de amplificación; el
+  parámetro permanece dentro del rango validado por `StableSwapMath`.
 - Una transferencia fallida revierte toda la actualización contable.
 - Los límites del guard se evalúan sobre reservas proyectadas.
 - Los claims consumen el checkpoint del titular antes de transferir.
@@ -64,6 +69,7 @@ Las revisiones deben priorizar:
 - interacción entre transferencias externas y reentrancy guard;
 - actualizaciones de fee manager, guard, oracle y fee recipient;
 - límites de reserva bajo secuencias de operaciones encadenadas.
+- cotizaciones entre cambios de parámetro y operaciones de liquidez.
 
 ## Validación obligatoria
 
